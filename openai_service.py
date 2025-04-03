@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 import os
-from openai import OpenAI
+import openai
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import logging
@@ -16,7 +16,14 @@ class Answer(BaseModel):
 class OpenAIService:
     def __init__(self):
         try:
-            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            # Get API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            
+            # Set the API key for the openai module
+            openai.api_key = api_key
+            
             logger.info("OpenAIService initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAIService: {str(e)}")
@@ -60,8 +67,8 @@ class OpenAIService:
 
             Question: {question}"""
             
-            # Get completion from OpenAI
-            response = self.client.chat.completions.create(
+            # Get completion from OpenAI using the module directly
+            response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": system_prompt},

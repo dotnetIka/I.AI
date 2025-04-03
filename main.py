@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 import logging
 import uvicorn
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -49,6 +50,7 @@ class QuestionRequest(BaseModel):
 
 class AnswerResponse(BaseModel):
     answer: str
+    duration_seconds: float
 
 def load_georgian_history() -> List[str]:
     """
@@ -80,20 +82,29 @@ async def ask_question(request: QuestionRequest):
         request: QuestionRequest containing the question
         
     Returns:
-        AnswerResponse containing the generated answer
+        AnswerResponse containing the generated answer and duration
     """
+    start_time = time.time()
     try:
         # Get similar documents from vector store
         similar_docs = vector_store.similarity_search(request.question)
         logger.info(f"Found {len(similar_docs)} similar documents")
         
         # Generate answer using OpenAI
-        answer = openai_service.generate_answer(request.question, similar_docs)
+        answer_data = await openai_service.answer_question(request.question, similar_docs)
         logger.info("Successfully generated answer")
         
-        return AnswerResponse(answer=answer)
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        return AnswerResponse(
+            answer=answer_data["answer"], 
+            duration_seconds=duration
+        )
     except Exception as e:
-        logger.error(f"Failed to answer question: {str(e)}")
+        end_time = time.time()
+        duration = end_time - start_time
+        logger.error(f"Failed to answer question after {duration:.2f} seconds: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error answering question: {str(e)}"

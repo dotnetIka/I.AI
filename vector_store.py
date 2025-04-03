@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 import os
-from openai import OpenAI
+import openai
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams
@@ -14,12 +14,13 @@ logger = logging.getLogger(__name__)
 class VectorStore:
     def __init__(self):
         try:
-            # Initialize OpenAI client with explicit API key
+            # Get API key
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
             
-            self.client = OpenAI(api_key=api_key)
+            # Set the API key for the openai module
+            openai.api_key = api_key
             
             # Initialize Qdrant client
             self.qdrant_client = QdrantClient(
@@ -33,23 +34,34 @@ class VectorStore:
             raise
 
     def _ensure_collection_exists(self) -> None:
-        """Ensure the Qdrant collection exists."""
+        """
+        Ensure the Qdrant collection exists.
+        """
         try:
-            self.qdrant_client.get_collection(self.collection_name)
-            logger.info(f"Collection {self.collection_name} already exists")
-        except Exception:
+            # Try to get the collection first
             try:
-                self.qdrant_client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=1536,  # OpenAI embedding dimension
-                        distance=models.Distance.COSINE
-                    )
+                self.qdrant_client.get_collection(self.collection_name)
+                logger.info(f"Collection {self.collection_name} already exists")
+                return
+            except Exception:
+                # Collection doesn't exist, create it
+                pass
+
+            # Create collection with default parameters
+            self.qdrant_client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(
+                    size=1536,  # OpenAI embedding dimension
+                    distance=Distance.COSINE
                 )
-                logger.info(f"Created new collection {self.collection_name}")
-            except Exception as e:
-                logger.error(f"Failed to create collection: {str(e)}")
-                raise
+            )
+            logger.info(f"Created new collection {self.collection_name}")
+        except Exception as e:
+            if "already exists" in str(e):
+                logger.info(f"Collection {self.collection_name} already exists")
+                return
+            logger.error(f"Failed to ensure collection exists: {str(e)}")
+            raise
 
     def add_documents(self, documents: List[str]) -> None:
         """
@@ -66,7 +78,7 @@ class VectorStore:
             # Generate embeddings for all documents
             embeddings = []
             for doc in documents:
-                response = self.client.embeddings.create(
+                response = openai.Embedding.create(
                     model="text-embedding-ada-002",
                     input=doc
                 )
@@ -105,7 +117,7 @@ class VectorStore:
         """
         try:
             # Generate embedding for the query
-            response = self.client.embeddings.create(
+            response = openai.Embedding.create(
                 model="text-embedding-ada-002",
                 input=query
             )
@@ -135,7 +147,7 @@ class VectorStore:
             List of floats representing the embedding
         """
         try:
-            response = self.client.embeddings.create(
+            response = openai.Embedding.create(
                 model="text-embedding-ada-002",
                 input=question
             )
