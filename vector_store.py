@@ -6,6 +6,7 @@ from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams
 from dotenv import load_dotenv
 import logging
+import hashlib
 
 load_dotenv()
 
@@ -66,6 +67,7 @@ class VectorStore:
     def add_documents(self, documents: List[str]) -> None:
         """
         Add documents to the vector store with their embeddings.
+        Uses content-based hashing for IDs to support idempotent updates.
         
         Args:
             documents: List of document texts to add
@@ -75,31 +77,44 @@ class VectorStore:
             return
 
         try:
-            # Generate embeddings for all documents
-            embeddings = []
+            points_to_upsert = []
+            # Process documents in batches for embedding generation if needed (optional optimization)
+            # For simplicity here, we process one by one
             for doc in documents:
+                if not doc.strip(): # Skip empty documents
+                    continue
+                    
+                # Generate embedding
                 response = openai.Embedding.create(
                     model="text-embedding-ada-002",
                     input=doc
                 )
-                embeddings.append(response.data[0].embedding)
-            
-            # Prepare points for Qdrant
-            points = []
-            for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
+                embedding = response.data[0].embedding
+                
+                # Generate content-based ID using SHA-256 hash
+                hasher = hashlib.sha256(doc.encode('utf-8'))
+                # Convert hex hash to integer and fit into positive 64-bit range
+                point_id = int(hasher.hexdigest(), 16) % (2**63)
+                
+                # Prepare point for Qdrant
                 point = models.PointStruct(
-                    id=idx,
+                    id=point_id, # Use the hash-based ID
                     vector=embedding,
                     payload={"text": doc}
                 )
-                points.append(point)
+                points_to_upsert.append(point)
             
+            if not points_to_upsert:
+                logger.info("No valid documents found to add/update.")
+                return
+
             # Upload points to Qdrant
             self.qdrant_client.upsert(
                 collection_name=self.collection_name,
-                points=points
+                points=points_to_upsert,
+                wait=True # Wait for operation to complete
             )
-            logger.info(f"Successfully added {len(documents)} documents to vector store")
+            logger.info(f"Successfully upserted {len(points_to_upsert)} documents to vector store using content-based IDs")
         except Exception as e:
             logger.error(f"Failed to add documents: {str(e)}")
             raise

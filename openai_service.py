@@ -67,9 +67,15 @@ class OpenAIService:
 
             Question: {question}"""
             
+            # Log the context being used (each section fully)
+            logger.debug(f"--- Context being sent to OpenAI ({len(context)} sections) ---")
+            for i, doc_section in enumerate(context):
+                logger.debug(f"Context Section [{i+1}/{len(context)}]:\n{doc_section}")
+            logger.debug("--- End of Context ---")
+            
             # Get completion from OpenAI using the module directly
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
