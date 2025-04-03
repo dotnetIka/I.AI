@@ -4,6 +4,7 @@ import openai
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import logging
+from cachetools import TTLCache
 
 load_dotenv()
 
@@ -24,7 +25,10 @@ class OpenAIService:
             # Set the API key for the openai module
             openai.api_key = api_key
             
-            logger.info("OpenAIService initialized successfully")
+            # Initialize question cache with 1-hour TTL and max size
+            self.question_cache = TTLCache(maxsize=1024, ttl=3600) # 3600 seconds = 1 hour
+            
+            logger.info("OpenAIService initialized successfully with 1-hour TTL question cache.")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAIService: {str(e)}")
             raise
@@ -32,6 +36,7 @@ class OpenAIService:
     async def answer_question(self, question: str, context: List[str]) -> Dict[str, Any]:
         """
         Answer a question based on the provided context.
+        Uses an in-memory TTL cache (1 hour) based on the question text.
         
         Args:
             question: The question to answer
@@ -40,8 +45,18 @@ class OpenAIService:
         Returns:
             Dict containing the answer and confidence score
         """
+        normalized_question = question.lower() # Normalize for caching
+        
+        # Check cache first
+        if normalized_question in self.question_cache:
+            logger.info(f"Cache hit for question: '{question}'")
+            return self.question_cache[normalized_question]
+        
+        logger.info(f"Cache miss for question: '{question}'")
+
         if not context:
             logger.warning("No context provided for question answering")
+            # Don't cache 'I don't know' answers due to lack of context
             return {
                 "answer": "I don't have enough information to answer this question.",
                 "confidence": 0.0
@@ -88,10 +103,16 @@ class OpenAIService:
             answer_text = response.choices[0].message.content
             parsed_answer = Answer.model_validate_json(answer_text)
             
-            return {
+            result = {
                 "answer": parsed_answer.answer,
                 "confidence": parsed_answer.confidence
             }
+            
+            # Store successful result in cache
+            self.question_cache[normalized_question] = result
+            logger.info(f"Stored answer in cache for question: '{question}'")
+            
+            return result
         except Exception as e:
             logger.error(f"Failed to answer question: {str(e)}")
             raise 
